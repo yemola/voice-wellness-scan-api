@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: vocera-voice-api
+    runtime: python
+    plan: starter
+    rootDir: voice-fastapi-app
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /healthz
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: ALLOWED_ORIGINS
+        value: "*"
+      - key: DEBUG
+        value: "False"
