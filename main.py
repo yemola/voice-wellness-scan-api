@@ -1,8 +1,10 @@
 import os
 import uuid
 
-from fastapi import FastAPI, Request, HTTPException
+from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+
+from analysis.report_generator import generate_pdf_report
 
 from analysis.audio_processing import decode_wav
 from analysis.features import extract_features
@@ -321,6 +323,27 @@ async def analyze(request: Request):
     except Exception as exc:
         _log.debug("%s   ERROR during analysis: %s", tag, exc)
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/generate-report")
+async def generate_report(request: Request):
+    """
+    Generate a PDF report based on analysis results provided in the request body.
+    """
+    try:
+        data = await request.json()
+        pdf_bytes = generate_pdf_report(data)
+        
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": "attachment; filename=voice-wellness-report.pdf"
+            }
+        )
+    except Exception as exc:
+        _log.error(f"Error generating report: {exc}")
+        raise HTTPException(status_code=500, detail=str(exc))
 
 
 if __name__ == "__main__":
