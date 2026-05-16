@@ -162,4 +162,4 @@ def generate_pdf_report(data: dict) -> bytes:
     pdf.set_text_color(150, 150, 150)
     pdf.multi_cell(0, 4, _clean_text("Disclaimer: This report is for general wellness tracking only. It is not a medical diagnostic tool. If you have persistent health concerns, please consult a healthcare professional."))
 
-    return pdf.output()
+    return bytes(pdf.output())
