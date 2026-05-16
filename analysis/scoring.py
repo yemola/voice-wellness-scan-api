@@ -356,7 +356,7 @@ def build_summary(scores):
 def build_tips(scores):
     tips = []
     if scores['stress'] >= 60:
-        tips.append("Take a 2–5 minute slow-breathing break (4s in, 6s out).")
+        tips.append("Take a 2-5 minute slow-breathing break (4s in, 6s out).")
     if scores['energy'] < 45:
         tips.append("Hydrate and try a 5-minute walk to lift your energy.")
     if scores['stability'] >= 60:
@@ -364,5 +364,5 @@ def build_tips(scores):
     if scores['energy'] >= 70 and scores['stress'] < 40:
         tips.append("Channel this momentum into your most demanding task next.")
     if not tips:
-        tips.append("Maintain your routine — your voice signals are well-balanced.")
+        tips.append("Maintain your routine - your voice signals are well-balanced.")
     return tips[:3]
