@@ -326,6 +326,7 @@ async def analyze(request: Request):
 
 
 @app.post("/api/generate-report")
+@app.post("/api/generate-report/")
 async def generate_report(request: Request):
     """
     Generate a PDF report based on analysis results provided in the request body.
