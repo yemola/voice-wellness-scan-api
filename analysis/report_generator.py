@@ -1,13 +1,15 @@
 from fpdf import FPDF
 from datetime import datetime
+import math
+import logging
+
+_log = logging.getLogger("report_generator")
 
 class WellnessReport(FPDF):
     def header(self):
-        # Header with Logo-like text
         self.set_font("helvetica", "B", 20)
-        self.set_text_color(45, 120, 255) # Vocera Blue
+        self.set_text_color(45, 120, 255)
         self.cell(0, 10, "VOCERA", ln=True, align="L")
-        
         self.set_font("helvetica", "", 10)
         self.set_text_color(100, 100, 100)
         self.cell(0, 5, "Personal Voice Wellness Report", ln=True, align="L")
@@ -23,143 +25,189 @@ def _clean_text(text: str) -> str:
     """Ensures text is compatible with latin-1 (standard PDF fonts)."""
     if not text:
         return ""
-    # Map common unicode characters to latin-1 equivalents
     replacements = {
-        "\u2013": "-", # en dash
-        "\u2014": "-", # em dash
-        "\u2018": "'", # left single quote
-        "\u2019": "'", # right single quote
-        "\u201c": '"', # left double quote
-        "\u201d": '"', # right double quote
-        "\u2022": "-", # bullet point
+        "\u2013": "-", "\u2014": "-", "\u2018": "'", "\u2019": "'",
+        "\u201c": '"', "\u201d": '"', "\u2022": "-",
     }
     for char, replacement in replacements.items():
         text = text.replace(char, replacement)
-    
-    # Fallback: encode to latin-1 and ignore anything else
     return text.encode("latin-1", "ignore").decode("latin-1")
 
-def generate_pdf_report(data: dict) -> bytes:
+def _draw_radar_chart(pdf, x_center, y_center, radius, data_points):
     """
-    Generates a PDF report from analysis data.
-    data: {
-        "scores": {"stress": int, "energy": int, "stability": int, "emotional_tone": str},
-        "summary": str,
-        "tips": list[str],
-        "raw_features": dict,
-        "user_id": str (optional)
-    }
+    Draws a custom radar chart (Acoustic Fingerprint) on the PDF.
+    data_points: list of (label, value_0_to_100)
     """
-    pdf = WellnessReport()
-    pdf.add_page()
+    num_vars = len(data_points)
+    angle_step = (2 * math.pi) / num_vars
     
-    scores = data.get("scores", {})
-    summary = _clean_text(data.get("summary", "No summary available."))
-    tips = [_clean_text(t) for t in data.get("tips", [])]
-    features = data.get("raw_features", {})
-    tone = _clean_text(scores.get("emotional_tone", "Balanced").capitalize())
-    
-    # --- PART 1: Executive Summary (Brief & Understandable) ---
-    pdf.set_font("helvetica", "B", 16)
-    pdf.set_text_color(0, 0, 0)
-    pdf.cell(0, 10, _clean_text("1. Executive Summary"), ln=True)
-    pdf.ln(2)
-    
-    # Score Gauges (Visualized as colored boxes)
-    pdf.set_font("helvetica", "B", 12)
-    
-    def add_score_row(label, value, color):
-        pdf.set_fill_color(*color)
-        pdf.set_text_color(255, 255, 255)
-        pdf.cell(40, 10, _clean_text(f" {label}"), fill=True)
-        pdf.set_fill_color(240, 240, 240)
-        pdf.set_text_color(0, 0, 0)
-        pdf.cell(20, 10, _clean_text(f"{value}%"), fill=True, align="C")
-        pdf.ln(12)
+    # 1. Draw background "web" (concentric polygons)
+    pdf.set_draw_color(220, 220, 220)
+    pdf.set_line_width(0.2)
+    for r_factor in [0.25, 0.5, 0.75, 1.0]:
+        r = radius * r_factor
+        points = []
+        for i in range(num_vars):
+            angle = i * angle_step - (math.pi / 2)
+            px = x_center + r * math.cos(angle)
+            py = y_center + r * math.sin(angle)
+            points.append((px, py))
+        
+        for i in range(num_vars):
+            p1 = points[i]
+            p2 = points[(i + 1) % num_vars]
+            pdf.line(p1[0], p1[1], p2[0], p2[1])
 
-    # Colors: Stress (Orange), Energy (Green), Stability (Blue)
-    add_score_row("STRESS LOAD", scores.get("stress", 0), (255, 140, 0))
-    add_score_row("VOCAL ENERGY", scores.get("energy", 0), (34, 139, 34))
-    add_score_row("STABILITY", scores.get("stability", 0), (70, 130, 180))
+    # 2. Draw axes and labels
+    pdf.set_font("helvetica", "B", 7)
+    pdf.set_text_color(100, 100, 100)
+    for i, (label, _) in enumerate(data_points):
+        angle = i * angle_step - (math.pi / 2)
+        # Axis line
+        ax = x_center + radius * math.cos(angle)
+        ay = y_center + radius * math.sin(angle)
+        pdf.line(x_center, y_center, ax, ay)
+        
+        # Label position (slightly outside the radius)
+        lx = x_center + (radius + 8) * math.cos(angle) - 10
+        ly = y_center + (radius + 5) * math.sin(angle) - 2
+        pdf.text(lx, ly, _clean_text(label))
+
+    # 3. Draw the data polygon (The Fingerprint)
+    pdf.set_draw_color(45, 120, 255)
+    pdf.set_line_width(0.8)
+    data_coords = []
+    for i, (_, val) in enumerate(data_points):
+        # Constrain value to 0-100
+        val = max(5, min(100, val or 0)) 
+        angle = i * angle_step - (math.pi / 2)
+        r = radius * (val / 100.0)
+        px = x_center + r * math.cos(angle)
+        py = y_center + r * math.sin(angle)
+        data_coords.append((px, py))
     
-    pdf.ln(5)
-    pdf.set_font("helvetica", "B", 12)
-    pdf.cell(0, 10, _clean_text(f"Vocal Vibe: {tone}"), ln=True)
-    
-    pdf.set_font("helvetica", "", 11)
-    pdf.multi_cell(0, 6, summary)
-    pdf.ln(10)
-    
-    # Relaxation Suggestions
-    pdf.set_fill_color(230, 242, 255) # Light blue bg
-    pdf.rect(10, pdf.get_y(), 190, 45, "F")
-    
-    pdf.set_y(pdf.get_y() + 5)
-    pdf.set_x(15)
-    pdf.set_font("helvetica", "B", 12)
-    pdf.set_text_color(0, 51, 102)
-    pdf.cell(0, 8, _clean_text("Daily Wellness & Calmness Tips"), ln=True)
-    
-    pdf.set_font("helvetica", "", 10)
-    pdf.set_text_color(50, 50, 50)
-    
-    # Custom relaxation tips based on stress
-    if scores.get("stress", 0) > 55:
-        relax_tips = [
-            "- Box Breathing: Inhale for 4s, hold for 4s, exhale for 4s, hold for 4s.",
-            "- Progressive Muscle Relaxation: Tense and release your shoulders.",
-            "- Hydration: Sip warm water or herbal tea to soothe vocal cords."
+    # Draw polygon lines
+    for i in range(num_vars):
+        p1 = data_coords[i]
+        p2 = data_coords[(i + 1) % num_vars]
+        pdf.line(p1[0], p1[1], p2[0], p2[1])
+        # Draw small points at vertices
+        pdf.ellipse(p1[0]-1, p1[1]-1, 2, 2, style="F")
+
+def generate_pdf_report(data: dict) -> bytes:
+    try:
+        pdf = WellnessReport()
+        pdf.add_page()
+        
+        scores = data.get("scores") or {}
+        summary = _clean_text(data.get("summary") or "No summary available.")
+        tips = [_clean_text(t) for t in data.get("tips", [])]
+        features = data.get("raw_features") or {}
+        tone = _clean_text(str(scores.get("emotional_tone", "Balanced")).capitalize())
+        
+        # --- PART 1: Executive Summary ---
+        pdf.set_font("helvetica", "B", 16)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 10, _clean_text("1. Executive Summary"), ln=True)
+        pdf.ln(2)
+        
+        # Draw the Fingerprint (Radar Chart) on the right side
+        chart_x = 155
+        chart_y = 55
+        # Map features to chart points
+        stability = scores.get("stability", 50)
+        energy = scores.get("energy", 50)
+        clarity = max(0, min(100, (features.get("hnr", 15) / 30) * 100)) # Scale HNR 0-30 to 0-100
+        control = max(0, min(100, (1.0 - features.get("jitter", 0.01)*20) * 100)) # Inverse jitter
+        tempo = max(0, min(100, (features.get("speechRate", 4) / 8) * 100)) # Scale rate
+        
+        fingerprint_data = [
+            ("Stability", stability),
+            ("Energy", energy),
+            ("Clarity", clarity),
+            ("Control", control),
+            ("Tempo", tempo)
         ]
-    else:
-        relax_tips = [
-            "- Maintain your current routine; your vocal signals are well-balanced.",
-            "- Practice 5 minutes of mindful silence to sustain this stability.",
-            "- Record a baseline when you feel 'neutral' for more accurate tracking."
+        _draw_radar_chart(pdf, chart_x, chart_y, 25, fingerprint_data)
+        
+        # Shift back to draw score rows on the left
+        pdf.set_y(35) 
+        def add_score_row(label, value, color):
+            val = int(value) if value is not None else 0
+            pdf.set_fill_color(*color)
+            pdf.set_text_color(255, 255, 255)
+            pdf.cell(40, 10, _clean_text(f" {label}"), fill=True)
+            pdf.set_fill_color(240, 240, 240)
+            pdf.set_text_color(0, 0, 0)
+            pdf.cell(20, 10, f"{val}%", fill=True, align="C")
+            pdf.ln(12)
+
+        add_score_row("STRESS LOAD", scores.get("stress"), (255, 140, 0))
+        add_score_row("VOCAL ENERGY", scores.get("energy"), (34, 139, 34))
+        add_score_row("STABILITY", scores.get("stability"), (70, 130, 180))
+        
+        pdf.ln(10)
+        pdf.set_font("helvetica", "B", 12)
+        pdf.cell(0, 10, _clean_text(f"Vocal Vibe: {tone}"), ln=True)
+        
+        pdf.set_font("helvetica", "", 11)
+        pdf.multi_cell(120, 6, summary) # Narrowed to leave room for chart
+        pdf.ln(10)
+        
+        # Suggestions Box
+        pdf.set_fill_color(230, 242, 255)
+        pdf.rect(10, pdf.get_y(), 190, 45, "F")
+        pdf.set_y(pdf.get_y() + 5)
+        pdf.set_x(15)
+        pdf.set_font("helvetica", "B", 12)
+        pdf.set_text_color(0, 51, 102)
+        pdf.cell(0, 8, _clean_text("Daily Wellness & Calmness Tips"), ln=True)
+        
+        pdf.set_font("helvetica", "", 10)
+        pdf.set_text_color(50, 50, 50)
+        for tip in tips:
+            pdf.set_x(15)
+            pdf.cell(0, 6, f"- {tip}", ln=True)
+        
+        pdf.ln(20)
+        
+        # --- PART 2: Technical Breakdown ---
+        pdf.set_font("helvetica", "B", 16)
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(0, 10, _clean_text("2. Detailed Technical Breakdown"), ln=True)
+        pdf.ln(5)
+        
+        def get_f(key, d=0.0): return float(features.get(key) or d)
+
+        tech_data = [
+            ("Jitter (Local)", f"{get_f('jitter'):.4f}", "Pitch irregularity. Higher under acute stress."),
+            ("Shimmer (Local)", f"{get_f('shimmer'):.4f}", "Amplitude variation. Linked to vocal intensity."),
+            ("HNR", f"{get_f('hnr'):.2f} dB", "Harmonics-to-Noise Ratio. Clarity of the signal."),
+            ("Speech Rate", f"{get_f('speechRate'):.2f} syl/s", "Pacing of speech. Reflects arousal levels."),
+            ("Pitch Stability", f"{scores.get('stability') or 0}%", "Consistency of fundamental frequency.")
         ]
         
-    for tip in relax_tips:
-        pdf.set_x(15)
-        pdf.cell(0, 6, _clean_text(tip), ln=True)
-    
-    pdf.ln(20)
-    
-    # --- PART 2: Detailed Technical Analysis ---
-    pdf.set_font("helvetica", "B", 16)
-    pdf.set_text_color(0, 0, 0)
-    pdf.cell(0, 10, _clean_text("2. Detailed Technical Breakdown"), ln=True)
-    pdf.ln(5)
-    
-    pdf.set_font("helvetica", "", 10)
-    pdf.set_text_color(100, 100, 100)
-    pdf.multi_cell(0, 5, _clean_text("These metrics are derived from micro-variations in your vocal signal. They provide a high-resolution look at the physiology behind your voice."))
-    pdf.ln(5)
-    
-    # Technical Table
-    pdf.set_font("helvetica", "B", 10)
-    pdf.set_fill_color(220, 220, 220)
-    pdf.cell(60, 8, _clean_text(" Metric"), border=1, fill=True)
-    pdf.cell(40, 8, _clean_text(" Value"), border=1, fill=True)
-    pdf.cell(90, 8, _clean_text(" Meaning"), border=1, fill=True)
-    pdf.ln()
-    
-    pdf.set_font("helvetica", "", 9)
-    tech_data = [
-        ("Jitter (Local)", f"{features.get('jitter', 0):.4f}", "Pitch irregularity. Often higher under acute stress."),
-        ("Shimmer (Local)", f"{features.get('shimmer', 0):.4f}", "Amplitude variation. Linked to vocal intensity & breath control."),
-        ("HNR", f"{features.get('hnr', 0):.2f} dB", "Harmonics-to-Noise Ratio. Clarity of the vocal signal."),
-        ("Speech Rate", f"{features.get('speechRate', 0):.2f} syl/s", "Pacing of speech. Reflects arousal levels."),
-        ("Pitch Stability", f"{scores.get('stability', 0)}%", "Consistency of fundamental frequency over time.")
-    ]
-    
-    for metric, val, meaning in tech_data:
-        pdf.cell(60, 8, _clean_text(f" {metric}"), border=1)
-        pdf.cell(40, 8, _clean_text(f" {val}"), border=1, align="C")
-        pdf.cell(90, 8, _clean_text(f" {meaning}"), border=1)
+        pdf.set_font("helvetica", "B", 10)
+        pdf.set_fill_color(220, 220, 220)
+        pdf.cell(60, 8, _clean_text(" Metric"), border=1, fill=True)
+        pdf.cell(40, 8, _clean_text(" Value"), border=1, fill=True)
+        pdf.cell(90, 8, _clean_text(" Meaning"), border=1, fill=True)
         pdf.ln()
         
-    pdf.ln(10)
-    pdf.set_font("helvetica", "I", 8)
-    pdf.set_text_color(150, 150, 150)
-    pdf.multi_cell(0, 4, _clean_text("Disclaimer: This report is for general wellness tracking only. It is not a medical diagnostic tool. If you have persistent health concerns, please consult a healthcare professional."))
+        pdf.set_font("helvetica", "", 9)
+        for m, v, msg in tech_data:
+            pdf.cell(60, 8, _clean_text(f" {m}"), border=1)
+            pdf.cell(40, 8, _clean_text(f" {v}"), border=1, align="C")
+            pdf.cell(90, 8, _clean_text(f" {msg}"), border=1)
+            pdf.ln()
+            
+        pdf.ln(10)
+        pdf.set_font("helvetica", "I", 8)
+        pdf.set_text_color(150, 150, 150)
+        disclaimer = "Disclaimer: This report is for general wellness tracking only. It is not a medical diagnostic tool. If you have persistent health concerns, please consult a healthcare professional."
+        pdf.multi_cell(0, 4, _clean_text(disclaimer))
 
-    return bytes(pdf.output())
+        return bytes(pdf.output())
+    except Exception as e:
+        _log.error(f"PDF Generation failed: {e}")
+        raise e
