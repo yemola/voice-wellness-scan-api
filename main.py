@@ -1,5 +1,6 @@
 import os
 import uuid
+from datetime import datetime
 
 from fastapi import FastAPI, Request, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -343,8 +344,10 @@ async def generate_report(request: Request):
             }
         )
     except Exception as exc:
-        _log.error(f"Error generating report: {exc}")
-        raise HTTPException(status_code=500, detail=str(exc))
+        import traceback
+        error_details = traceback.format_exc()
+        _log.error(f"Error generating report: {error_details}")
+        raise HTTPException(status_code=500, detail=f"PDF Generation Error: {str(exc)}")
 
 
 if __name__ == "__main__":
